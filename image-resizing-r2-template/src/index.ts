@@ -88,16 +88,15 @@ export default {
 				quality: 85, // Good balance between quality and file size
 			};
 
-			// BEST PRACTICE: Format negotiation based on Accept header
-			const acceptHeader = request.headers.get('Accept') || '';
-			if (acceptHeader.includes('image/avif')) {
-				resizingOptions.format = 'avif';
-			} else if (acceptHeader.includes('image/webp')) {
-				resizingOptions.format = 'webp';
-			} else {
-				// Default to automatic format selection
-				resizingOptions.format = 'auto';
-			}
+		// BEST PRACTICE: Format negotiation based on Accept header
+		// If format is omitted, Cloudflare automatically selects the best format
+		const acceptHeader = request.headers.get('Accept') || '';
+		if (acceptHeader.includes('image/avif')) {
+			resizingOptions.format = 'avif';
+		} else if (acceptHeader.includes('image/webp')) {
+			resizingOptions.format = 'webp';
+		}
+		// Else: format stays undefined = automatic format selection
 
 			// Create a response from R2 object
 			const imageResponse = new Response(r2Object.body, {
