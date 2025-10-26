@@ -1,0 +1,36 @@
+{
+	"name": "image-resizing-r2-template",
+	"description": "Serve images from R2 with on-the-fly resizing using custom URL presets",
+	"private": true,
+	"cloudflare": {
+		"label": "Image Resizing with R2",
+		"products": [
+			"Workers",
+			"R2",
+			"Images"
+		],
+		"categories": [
+			"storage"
+		],
+		"docs_url": "https://developers.cloudflare.com/images/transform-images/",
+		"publish": true
+	},
+	"scripts": {
+		"cf-typegen": "wrangler types",
+		"check": "tsc && wrangler deploy --dry-run",
+		"deploy": "wrangler deploy",
+		"dev": "wrangler dev",
+		"start": "wrangler dev",
+		"test": "vitest"
+	},
+	"devDependencies": {
+		"@cloudflare/vitest-pool-workers": "^0.8.71",
+		"@cloudflare/workers-types": "^4.20241022.0",
+		"typescript": "5.8.3",
+		"vitest": "3.2.4",
+		"wrangler": "4.21.x"
+	},
+	"engines": {
+		"node": ">=18.0.0"
+	}
+}

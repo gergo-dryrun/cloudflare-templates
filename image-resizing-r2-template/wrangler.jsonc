@@ -1,0 +1,33 @@
+/**
+ * For more details on how to configure Wrangler, refer to:
+ * https://developers.cloudflare.com/workers/wrangler/configuration/
+ */ {
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "image-resizing-r2-template",
+	"main": "src/index.ts",
+	"compatibility_date": "2025-10-08",
+	"observability": {
+		"enabled": true
+	},
+	/**
+	 * Smart Placement
+	 * Automatically places your Worker in an optimal location to minimize latency.
+	 * Docs: https://developers.cloudflare.com/workers/configuration/smart-placement/
+	 */
+	"placement": {
+		"mode": "smart"
+	},
+	/**
+	 * Bindings
+	 * Bindings allow your Worker to interact with resources on the Cloudflare Developer Platform.
+	 * https://developers.cloudflare.com/workers/runtime-apis/bindings/
+	 */
+	"r2_buckets": [
+		{
+			"binding": "MY_BUCKET",
+			"bucket_name": "my-images"
+		}
+	],
+	"upload_source_maps": true
+}
+
