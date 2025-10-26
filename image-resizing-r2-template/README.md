@@ -109,12 +109,12 @@ flowchart TD
     Error400B --> End
     Error404 --> End
     
-    style ReturnCached fill:#90EE90
-    style ReturnOptimized fill:#90EE90
-    style Fallback fill:#FFE4B5
-    style Error400A fill:#FFB6C6
-    style Error400B fill:#FFB6C6
-    style Error404 fill:#FFB6C6
+    style ReturnCached fill:#2ea043,stroke:#2ea043,color:#fff
+    style ReturnOptimized fill:#2ea043,stroke:#2ea043,color:#fff
+    style Fallback fill:#fb8500,stroke:#fb8500,color:#fff
+    style Error400A fill:#d1242f,stroke:#d1242f,color:#fff
+    style Error400B fill:#d1242f,stroke:#d1242f,color:#fff
+    style Error404 fill:#d1242f,stroke:#d1242f,color:#fff
 ```
 
 ### How It Works
