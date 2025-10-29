@@ -180,21 +180,16 @@ Update the `wrangler.jsonc` file with your bucket name:
   "name": "image-resizing-r2-template",
   "r2_buckets": [
     {
-      "binding": "MY_BUCKET",      // ← This must match the interface in src/index.ts
+      "binding": "MY_BUCKET",      // ← This becomes available as env.MY_BUCKET in your code
       "bucket_name": "my-images"   // ← Replace with your actual R2 bucket name
     }
   ]
 }
 ```
 
-> **Important**: The `binding` name must match the property name in your `Env` interface in `src/index.ts`. The template uses `MY_BUCKET` by default, but you can change it to any name as long as both files match.
+> **How Type Generation Works**: Wrangler automatically generates TypeScript types for your bindings. When you add or change bindings in `wrangler.jsonc`, run `npm run cf-typegen` to regenerate the `Env` interface in `worker-configuration.d.ts`. You don't need to manually maintain the `Env` interface - Wrangler does it for you!
 > 
-> For example, if you use `binding: "IMAGES"` in wrangler.jsonc, update src/index.ts:
-> ```typescript
-> export interface Env {
->   IMAGES: R2Bucket;  // Match the binding name
-> }
-> ```
+> For example, if you change the binding to `"IMAGES"`, run `npm run cf-typegen` and it will be automatically available as `env.IMAGES` with full TypeScript support.
 
 ### 3. Install Dependencies
 
@@ -495,27 +490,24 @@ This typically indicates a binding name mismatch between your code and `wrangler
 
 **Check your configuration:**
 
-In `wrangler.jsonc`:
+1. Verify your binding name in `wrangler.jsonc`:
 ```jsonc
 {
   "r2_buckets": [
     {
-      "binding": "MY_BUCKET",  // ← This name must match your code
+      "binding": "MY_BUCKET",  // ← This name must match what you use in code
       "bucket_name": "my-images"
     }
   ]
 }
 ```
 
-In `src/index.ts`:
-```typescript
-export interface Env {
-  MY_BUCKET: R2Bucket;  // ← Must match the binding name above
-}
-
-// Then use it as:
-const r2Object = await env.MY_BUCKET.get(filename);
+2. Regenerate types after any binding changes:
+```bash
+npm run cf-typegen
 ```
+
+This updates `worker-configuration.d.ts` with the correct `Env` interface. Wrangler automatically generates TypeScript types from your bindings.
 
 ### Infinite loop / Request loop errors
 
