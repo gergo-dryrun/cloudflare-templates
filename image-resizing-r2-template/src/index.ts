@@ -9,7 +9,7 @@
 
 export interface Env {
 	// R2 bucket binding for storing original images
-	image_resizing_r2_template_demo_bucket: R2Bucket;
+	MY_BUCKET: R2Bucket;
 }
 
 // Preset size definitions (width in pixels)
@@ -106,7 +106,7 @@ export default {
 
 		// Fetch object from R2
 		console.log(`Fetching from R2: ${filename}`);
-		const r2Object = await env.image_resizing_r2_template_demo_bucket.get(filename);
+		const r2Object = await env.MY_BUCKET.get(filename);
 
 			if (!r2Object) {
 				console.error(`Image not found in R2: ${filename}`);

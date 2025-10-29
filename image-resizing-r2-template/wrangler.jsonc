@@ -23,10 +23,10 @@
 	 * https://developers.cloudflare.com/workers/runtime-apis/bindings/
 	 */
 	"r2_buckets": [
-		{
-			"binding": "MY_BUCKET",
-			"bucket_name": "my-images"
-		}
+	{
+		"binding": "MY_BUCKET",
+		"bucket_name": "my-images"
+	}
 	],
 	"upload_source_maps": true
 }
