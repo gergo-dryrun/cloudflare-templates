@@ -11,8 +11,10 @@ A production-ready Cloudflare Worker that serves images from [R2](https://develo
 - **Custom URL scheme**: Use friendly preset names (`thumbnail`, `medium`, `large`) instead of pixel dimensions
 - **Only original images stored**: No need to store multiple variants in R2
 - **Automatic format optimization**: Serves AVIF, WebP, or JPEG based on browser support
+- **Automatic content-type detection**: Images display correctly even without metadata
 - **Edge caching**: Transformed images cached automatically for fast delivery
 - **Smart Placement**: Worker runs optimally near your R2 bucket
+- **Robust error handling**: Circuit breakers, graceful fallbacks, and comprehensive logging
 
 > [!IMPORTANT]
 > When using C3 to create this project, you'll need to create an R2 bucket and update your `wrangler.jsonc` configuration before deploying. Follow the [setup steps](#setup-instructions) below.
@@ -133,7 +135,9 @@ flowchart TD
 - ✅ **Only original images stored in R2** - no need to store multiple variants
 - ✅ **Custom URL scheme** - use friendly preset names instead of pixel dimensions
 - ✅ **Automatic format optimization** - serves AVIF, WebP, or JPEG based on browser support
+- ✅ **Automatic content-type detection** - properly serves images even without metadata
 - ✅ **Built-in caching** - transformed images cached automatically at the edge
+- ✅ **Circuit breakers & error handling** - graceful fallbacks and loop prevention
 - ✅ **Zero infrastructure management** - fully serverless solution
 - ✅ **Global performance** - leverages Cloudflare's global network
 
@@ -142,11 +146,12 @@ flowchart TD
 Before you begin, ensure you have:
 
 1. A [Cloudflare account](https://dash.cloudflare.com/sign-up)
-2. [Node.js](https://nodejs.org/) version 18 or higher
-3. [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/install-and-update/) installed globally:
-   ```bash
-   npm install -g wrangler
-   ```
+2. **[R2 enabled](https://developers.cloudflare.com/r2/get-started/)** on your Cloudflare account
+   - Go to the [Cloudflare Dashboard](https://dash.cloudflare.com/) → **R2** → Enable R2
+   - You may need to add a payment method (R2 has a generous free tier)
+3. [Node.js](https://nodejs.org/) version 18 or higher
+4. [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/install-and-update/) installed as a devDependency (already in `package.json`)
+   - Or install globally: `npm install -g wrangler`
 
 ## Setup Instructions
 
@@ -175,12 +180,21 @@ Update the `wrangler.jsonc` file with your bucket name:
   "name": "image-resizing-r2-template",
   "r2_buckets": [
     {
-      "binding": "MY_BUCKET",
-      "bucket_name": "my-images"  // ← Replace with your bucket name
+      "binding": "MY_BUCKET",      // ← This must match the interface in src/index.ts
+      "bucket_name": "my-images"   // ← Replace with your actual R2 bucket name
     }
   ]
 }
 ```
+
+> **Important**: The `binding` name must match the property name in your `Env` interface in `src/index.ts`. The template uses `MY_BUCKET` by default, but you can change it to any name as long as both files match.
+> 
+> For example, if you use `binding: "IMAGES"` in wrangler.jsonc, update src/index.ts:
+> ```typescript
+> export interface Env {
+>   IMAGES: R2Bucket;  // Match the binding name
+> }
+> ```
 
 ### 3. Install Dependencies
 
@@ -193,14 +207,19 @@ npm install
 Upload your original images to the R2 bucket. You can use the Wrangler CLI:
 
 ```bash
-# Upload a single file
-wrangler r2 object put my-images/photo.jpg --file ./path/to/photo.jpg
+# Upload a single file (with content-type - recommended)
+wrangler r2 object put my-images/photo.jpg \
+  --file ./path/to/photo.jpg \
+  --content-type "image/jpeg"
 
-# Upload with custom metadata
-wrangler r2 object put my-images/photo.jpg --file ./path/to/photo.jpg \
+# Upload with custom metadata and cache headers
+wrangler r2 object put my-images/photo.jpg \
+  --file ./path/to/photo.jpg \
   --content-type "image/jpeg" \
   --cache-control "public, max-age=31536000"
 ```
+
+> **Important**: Always specify `--content-type` when uploading images. Without it, the file will be stored with `application/octet-stream`, which may cause browsers to download instead of display the image. While the Worker now auto-detects content types from file extensions as a fallback, it's best practice to set it during upload.
 
 Alternatively, use the [R2 API](https://developers.cloudflare.com/r2/api/s3/api/) or dashboard to upload images.
 
@@ -211,6 +230,17 @@ Alternatively, use the [R2 API](https://developers.cloudflare.com/r2/api/s3/api/
 
 ## Local Development
 
+### Understanding Local vs Remote R2 Buckets
+
+When developing locally with `wrangler dev`, it's important to understand that **local and remote R2 buckets are separate**:
+
+- **Remote bucket**: Your actual R2 bucket on Cloudflare's network (accessed via `wrangler r2 object put`)
+- **Local bucket**: A separate development bucket stored in `.wrangler/state/` (used by `npm run dev`)
+
+This means files uploaded to your remote bucket won't be available in local development unless you upload them to the local bucket as well.
+
+### Start Local Development
+
 Start the local development server:
 
 ```bash
@@ -219,11 +249,68 @@ npm run dev
 
 The Worker will be available at `http://localhost:8787`.
 
-Test with a sample image:
+### Upload Test Images for Local Development
+
+To test locally, you need to upload images to your **local** bucket using the `--local` flag:
+
 ```bash
-# Assuming you have photo.jpg in your R2 bucket
-curl http://localhost:8787/images/medium/photo.jpg
+# Upload to local development bucket
+npx wrangler r2 object put my-images/photo.jpg --file ./path/to/photo.jpg --local
+
+# Important: Add --content-type to ensure images display in browser
+npx wrangler r2 object put my-images/photo.jpg \
+  --file ./path/to/photo.jpg \
+  --local \
+  --content-type "image/jpeg"
 ```
+
+> **Tip**: If you don't specify `--content-type`, the file will default to `application/octet-stream`, which causes browsers to download the file instead of displaying it. The Worker now automatically detects content types from file extensions, but it's still best practice to set them during upload.
+
+### Test Locally
+
+```bash
+# Test with a sample image
+curl http://localhost:8787/images/medium/photo.jpg
+
+# Or open in browser
+open http://localhost:8787/images/medium/photo.jpg
+```
+
+### Important Limitations in Local Development
+
+⚠️ **Image resizing does not work in local development mode.** Here's why:
+
+1. **Cloudflare Image Resizing** only runs on Cloudflare's edge network, not in the local Wrangler environment
+2. The Worker detects when running locally (via `localhost` hostname) and automatically skips resizing
+3. Instead, it returns the **original unresized image** with a warning in the console
+
+**Console output in local dev:**
+```
+⚠️  Image resizing is not available in local development
+   Returning original image without resizing
+   Deploy to Cloudflare to test image resizing functionality
+```
+
+**To test actual image resizing**, you must deploy to Cloudflare:
+
+```bash
+npm run deploy
+```
+
+Then test your deployed Worker:
+```bash
+curl https://your-worker.workers.dev/images/medium/photo.jpg
+```
+
+### Alternative: Test with Remote R2 Bucket
+
+If you want to test with your actual remote R2 bucket (without image resizing), use remote mode:
+
+```bash
+npx wrangler dev --remote
+```
+
+This connects to your real R2 bucket on Cloudflare, so any files uploaded without `--local` will be available.
 
 ## Deployment
 
@@ -387,6 +474,59 @@ For private images, consider adding:
   ```
 - Check the filename matches exactly (case-sensitive)
 - Ensure the file was uploaded successfully
+- **Local development**: Make sure you uploaded to the local bucket with `--local` flag
+
+### Browser downloads image instead of displaying it
+
+This happens when the `Content-Type` header is set to `application/octet-stream` instead of a proper image MIME type.
+
+**Solution 1** (Recommended): The Worker now automatically detects content types from file extensions, so this should work automatically.
+
+**Solution 2**: Upload with explicit content type:
+```bash
+npx wrangler r2 object put my-images/photo.jpg \
+  --file ./photo.jpg \
+  --content-type "image/jpeg"
+```
+
+### "Cannot read properties of undefined" error
+
+This typically indicates a binding name mismatch between your code and `wrangler.jsonc`.
+
+**Check your configuration:**
+
+In `wrangler.jsonc`:
+```jsonc
+{
+  "r2_buckets": [
+    {
+      "binding": "MY_BUCKET",  // ← This name must match your code
+      "bucket_name": "my-images"
+    }
+  ]
+}
+```
+
+In `src/index.ts`:
+```typescript
+export interface Env {
+  MY_BUCKET: R2Bucket;  // ← Must match the binding name above
+}
+
+// Then use it as:
+const r2Object = await env.MY_BUCKET.get(filename);
+```
+
+### Infinite loop / Request loop errors
+
+If you see repeated errors or "loop detected" messages:
+
+1. This is expected behavior in local development when trying to use image resizing
+2. The Worker implements dual loop prevention:
+   - **Production**: Uses Cloudflare's official `Via` header (automatically added by the service)
+   - **Local dev**: Uses custom `x-resize-loop-detector` header to mimic production behavior
+3. Image resizing is automatically skipped in local development
+4. Deploy to Cloudflare to test actual image resizing
 
 ### Invalid preset error (400)
 
@@ -401,9 +541,22 @@ For private images, consider adding:
 
 ### Request loop detected
 
-The Worker includes loop prevention. If you see this issue:
+The Worker implements dual loop prevention to work in both production and local development:
+
+**Production (Cloudflare):**
+- When Cloudflare's image resizing service processes an image, it automatically adds `image-resizing` to the `Via` header
+- The Worker detects this and bypasses processing to prevent infinite loops
+- This is the [official Cloudflare best practice](https://developers.cloudflare.com/images/transform-images/transform-via-workers/#prevent-request-loops)
+
+**Local Development:**
+- The Worker adds a custom `x-resize-loop-detector: internal` header to resize requests
+- This mimics the production `Via` header behavior
+- Allows for safer local testing without infinite loops
+
+If you see loop issues:
 - Ensure your Worker route doesn't overlap with other Workers
-- Check that the `via` header detection is working
+- Check that both header detections are working correctly
+- Deploy to Cloudflare to test the production `Via` header behavior
 
 ## Customization
 
