@@ -1,0 +1,325 @@
+# Cursor Rules for Image Resizing R2 Template
+
+This file provides AI coding assistant guidance specific to the Image Resizing with R2 Storage template.
+
+## Template Overview
+
+This template demonstrates how to serve optimized images from R2 storage with on-the-fly resizing using Cloudflare's Image Resizing service. It showcases R2, Image Resizing, and Workers best practices.
+
+## Core Principles
+
+### 1. Image Resizing Best Practices
+
+**Loop Prevention (CRITICAL)**
+- ALWAYS check both `via` header (production) and `x-resize-loop-detector` (local dev)
+- Production: Cloudflare automatically adds `image-resizing` to the `Via` header
+- Local dev: Manually add `x-resize-loop-detector: internal` to mimic production
+- Pattern:
+  ```typescript
+  const viaHeader = request.headers.get('via');
+  const loopDetector = request.headers.get('x-resize-loop-detector');
+  if ((viaHeader && /image-resizing/.test(viaHeader)) || loopDetector === 'internal') {
+    return fetch(request); // Bypass worker to prevent infinite loops
+  }
+  ```
+- Reference: https://developers.cloudflare.com/images/transform-images/transform-via-workers/#prevent-request-loops
+
+**Image Resizing Options**
+- Use `fit: 'scale-down'` to NEVER upscale images (best practice)
+- Set `quality: 85` as the default (balance between quality and file size)
+- Implement format negotiation based on `Accept` header:
+  - AVIF first (best compression)
+  - WebP second (good compression, wide support)
+  - Original format fallback
+- ALWAYS include graceful degradation - return original image if resizing fails
+
+**URL Patterns**
+- Use preset names, not pixel dimensions: `/images/[preset]/[filename]`
+- Example: `/images/medium/photo.jpg` instead of `/images/w_600/photo.jpg`
+- Benefits: Easier to change sizes, more semantic, better for templates
+
+### 2. R2 Best Practices
+
+**Content-Type Handling**
+- ALWAYS set `Content-Type` when uploading to R2
+- Implement fallback: detect content type from file extension if R2 metadata missing
+- Pattern:
+  ```typescript
+  const contentType = r2Object.httpMetadata?.contentType || getContentTypeFromFilename(filename);
+  ```
+
+**Caching Headers**
+- Preserve R2 cache headers or set sensible defaults
+- Example: `'Cache-Control': r2Object.httpMetadata?.cacheControl || 'public, max-age=3600'`
+- Include `ETag` from R2 for cache revalidation
+
+**Error Handling**
+- Return 404 for missing images with clear error messages
+- Validate file formats before R2 lookup
+- Include troubleshooting hints in error responses
+
+### 3. Type Generation (Wrangler Auto-Types)
+
+**DO NOT manually maintain Env interface in source code**
+- Wrangler automatically generates types from `wrangler.jsonc` bindings
+- Run `npm run cf-typegen` after changing bindings in `wrangler.jsonc`
+- The `Env` interface lives in `worker-configuration.d.ts` (auto-generated)
+- Pattern:
+  ```typescript
+  // ❌ DON'T do this in src/index.ts:
+  export interface Env {
+    MY_BUCKET: R2Bucket;
+  }
+  
+  // ✅ DO this - just use Env (auto-generated from wrangler.jsonc):
+  export default {
+    async fetch(request, env: Env, ctx) {
+      const obj = await env.MY_BUCKET.get(filename);
+    }
+  }
+  ```
+
+**TypeScript Configuration**
+- Include `"./worker-configuration.d.ts"` in `tsconfig.json` types array
+- Keep `@cloudflare/workers-types` for runtime types
+- Pattern follows official Cloudflare recommendation
+
+**Binding Names**
+- Use simple, template-friendly names: `MY_BUCKET` not `image_resizing_r2_template_demo_bucket`
+- Binding name in `wrangler.jsonc` must match usage in code
+- Wrangler automatically generates the TypeScript interface
+
+### 4. Local Development vs Production
+
+**Image Resizing Availability**
+- Image resizing ONLY works in production (Cloudflare deployed)
+- In local dev (`wrangler dev`): Return original image with warning headers
+- Detection: Check `url.hostname === 'localhost'` or `url.hostname.includes('127.0.0.1')`
+- Always add headers to indicate status:
+  - `X-Image-Preset`: Requested preset name
+  - `X-Image-Width`: Target width
+  - `X-Resize-Status`: `success` / `skipped-local-dev` / `failed-fallback-to-original`
+
+**Loop Detection Differences**
+- Production: Cloudflare adds `via: image-resizing` header automatically
+- Local: Worker manually adds `x-resize-loop-detector: internal` to mimic production
+- Both must be checked to work in all environments
+
+### 5. Testing Requirements
+
+**Minimum 5 Tests Required (vitest)**
+- URL validation (invalid format, missing preset)
+- Image fetching from R2
+- Preset validation
+- File format validation
+- Error handling (missing images)
+- Use `@cloudflare/vitest-pool-workers` package
+- Mock R2 using `env.MY_BUCKET.put()` in `beforeEach()`
+
+**Test Patterns**
+```typescript
+import { env, createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
+import { describe, it, expect, beforeEach } from "vitest";
+
+beforeEach(async () => {
+  await env.MY_BUCKET.put("test.jpg", mockImageData, {
+    httpMetadata: { contentType: "image/jpeg" }
+  });
+});
+```
+
+### 6. Configuration Standards
+
+**Wrangler Configuration**
+- MUST use `wrangler.jsonc` format (not `.toml`)
+- Latest compatibility date
+- Smart Placement enabled: `"placement": { "mode": "smart" }`
+- Observability enabled: `"observability": { "enabled": true }`
+- Source maps enabled: `"upload_source_maps": true`
+
+**Package.json Requirements**
+- Name: `image-resizing-r2-template` (matches directory)
+- Scripts must include:
+  - `"cf-typegen": "wrangler types"` for type generation
+  - `"deploy": "wrangler deploy"`
+  - `"dev": "wrangler dev"`
+  - `"test": "vitest"`
+- Cloudflare metadata:
+  ```json
+  "cloudflare": {
+    "label": "Image Resizing with R2",
+    "products": ["Workers", "R2", "Images"],
+    "categories": ["storage"],
+    "publish": true
+  }
+  ```
+
+### 7. Code Quality Standards
+
+**Educational Comments**
+- Include comments explaining Cloudflare-specific features
+- Reference official documentation with URLs
+- Mark best practices with `// BEST PRACTICE:` prefix
+- Example: `// BEST PRACTICE: Never upscale images`
+
+**Error Messages**
+- Clear, actionable error messages
+- Include what went wrong and how to fix it
+- Example: `Invalid size preset "${preset}". Valid presets: thumbnail, small, medium, large, xlarge`
+
+**TypeScript**
+- Strict mode enabled
+- Use proper types for all Workers APIs
+- No `any` types unless absolutely necessary
+- Leverage auto-generated types from Wrangler
+
+### 8. Documentation Standards
+
+**README.md Must Include**
+- Deploy to Cloudflare button at the top
+- Getting started section with prerequisites
+- Local development instructions
+- Deployment instructions
+- Troubleshooting section with common issues
+- Dashboard content section wrapped in `<!-- dash-content-start -->` and `<!-- dash-content-end -->`
+- Links to official Cloudflare documentation
+
+**Code Documentation**
+- Every function should have a clear purpose comment
+- Complex logic should have inline comments
+- Cloudflare-specific patterns should reference official docs
+
+### 9. Performance Best Practices
+
+**Caching**
+- Leverage Cloudflare's automatic caching for resized images
+- Set appropriate `Cache-Control` headers
+- Include `ETag` for revalidation
+- Default: `public, max-age=3600` (1 hour)
+
+**Smart Placement**
+- Always enabled in template for optimal latency
+- Automatically places Worker near data sources (R2)
+
+**Response Headers**
+- Always include informative headers: `X-Image-Preset`, `X-Image-Width`, `X-Resize-Status`
+- Helps debugging and monitoring in production
+
+### 10. Security Best Practices
+
+**Input Validation**
+- ALWAYS validate preset names against allowed list
+- ALWAYS validate file extensions before R2 lookup
+- ALWAYS validate URL patterns
+- Return 400 for invalid input with clear error messages
+
+**No Path Traversal**
+- Filename extraction from URL must be safe
+- Don't allow `..` or other path traversal patterns
+
+### 11. Common Patterns
+
+**Size Preset Definitions**
+```typescript
+const SIZE_PRESETS: Record<string, number> = {
+  thumbnail: 150,
+  small: 300,
+  medium: 600,
+  large: 900,
+  xlarge: 1920,
+};
+```
+
+**Content Type Detection**
+```typescript
+function getContentTypeFromFilename(filename: string): string {
+  const ext = filename.toLowerCase().split('.').pop();
+  switch (ext) {
+    case 'jpg':
+    case 'jpeg': return 'image/jpeg';
+    case 'png': return 'image/png';
+    case 'gif': return 'image/gif';
+    case 'webp': return 'image/webp';
+    default: return 'application/octet-stream';
+  }
+}
+```
+
+**Format Negotiation**
+```typescript
+const acceptHeader = request.headers.get('Accept') || '';
+if (acceptHeader.includes('image/avif')) {
+  resizingOptions.format = 'avif';
+} else if (acceptHeader.includes('image/webp')) {
+  resizingOptions.format = 'webp';
+}
+// Else: format stays undefined = automatic format selection
+```
+
+## Development Workflow
+
+1. **Before changes**: Ensure tests pass with `npm test`
+2. **After binding changes**: Run `npm run cf-typegen` to regenerate types
+3. **Before deployment**: Run `npm run check` (TypeScript + dry-run)
+4. **Local testing**: Remember image resizing won't work locally (by design)
+5. **Production testing**: Deploy to Cloudflare to test actual image resizing
+
+## Template Compliance Checklist
+
+- [ ] Minimum 5 tests using vitest
+- [ ] Package-lock.json exists and is up-to-date
+- [ ] README includes Deploy to Cloudflare button
+- [ ] Smart Placement enabled in wrangler.jsonc
+- [ ] Observability enabled in wrangler.jsonc
+- [ ] Latest compatibility date in wrangler.jsonc
+- [ ] Educational comments throughout code
+- [ ] All errors have clear, actionable messages
+- [ ] No manual Env interface in source code (use auto-generated)
+- [ ] Loop prevention implemented correctly
+- [ ] Graceful degradation for image resizing failures
+
+## Key Resources
+
+- Cloudflare Image Resizing: https://developers.cloudflare.com/images/transform-images/
+- Transform via Workers: https://developers.cloudflare.com/images/transform-images/transform-via-workers/
+- Loop Prevention: https://developers.cloudflare.com/images/transform-images/transform-via-workers/#prevent-request-loops
+- R2 Documentation: https://developers.cloudflare.com/r2/
+- Wrangler Types Command: https://developers.cloudflare.com/workers/wrangler/commands/#types
+- Workers TypeScript: https://developers.cloudflare.com/workers/languages/typescript/
+
+## Anti-Patterns to Avoid
+
+❌ **DON'T** manually maintain `export interface Env` in source code  
+❌ **DON'T** use pixel dimensions in URLs (use preset names)  
+❌ **DON'T** upscale images (always use `fit: 'scale-down'`)  
+❌ **DON'T** forget loop prevention (check both `via` and custom headers)  
+❌ **DON'T** fail silently (always return original image on resize failure)  
+❌ **DON'T** skip content-type detection (implement fallback)  
+❌ **DON'T** use experimental features (stable best practices only)  
+❌ **DON'T** forget to test with at least 5 test cases  
+❌ **DON'T** use `.toml` config (use `.jsonc` or `.json`)  
+
+## Quick Reference Commands
+
+```bash
+# Type generation after binding changes
+npm run cf-typegen
+
+# Local development (image resizing won't work)
+npm run dev
+
+# Run tests
+npm test
+
+# Type check and dry-run deployment
+npm run check
+
+# Deploy to Cloudflare
+npm run deploy
+
+# Upload test image to R2
+wrangler r2 object put my-images/photo.jpg \
+  --file ./photo.jpg \
+  --content-type "image/jpeg"
+```
+
